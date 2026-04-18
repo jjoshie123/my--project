@@ -2,8 +2,10 @@
 import yfinance as yf
 import matplotlib.pyplot as plt
 import os, json
-DATA_FILE = "/root/my--project/watchlist.json"
-EXPORT_DIR = "/root/storage/downloads/graphs"
+
+DATA_FILE = "watchlist.json"
+EXPORT_DIR = "/root/storage/shared/IM/graphs"   # Arch → Termux bind mount
+
 TIMEFRAMES = {
     "1D": "1d",
     "5D": "5d",
