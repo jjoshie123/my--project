@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json, os, requests, time, tempfile, shutil
 WATCHLIST_PATH = "/root/my--project/watchlist.json"
+GRAPH_DIR = "/root/storage/downloads/graphs"
 # === ATOMIC SAVE ===
 def atomic_save(path, data):
     dirpath = os.path.dirname(path)

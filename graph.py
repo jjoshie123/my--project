@@ -4,13 +4,13 @@ import matplotlib.pyplot as plt
 import os
 import json
 
-# === PATHS ===
+# === ORIGINAL WATCHLIST PATH (Termux storage) ===
 WATCHLIST_PATH = "/root/my--project/watchlist.json"
-GRAPH_DIR = "/data/data/com.termux/files/home/stockdata/graphs"
-
+# === ORIGINAL GRAPH DIRECTORY (Android-visible) ===
+GRAPH_DIR = "/root/storage/downloads/graphs"
 os.makedirs(GRAPH_DIR, exist_ok=True)
 
-# === LOAD TICKERS + FAVORITES DIRECTLY FROM JSON ===
+# === LOAD TICKERS + FAVORITES FROM JSON ===
 with open(WATCHLIST_PATH, "r") as f:
     data = json.load(f)
 
