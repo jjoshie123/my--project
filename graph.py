@@ -1,80 +1,83 @@
 #!/usr/bin/env python3
 import yfinance as yf
 import matplotlib.pyplot as plt
-import os, json
-DATA_FILE = "/root/my--project/watchlist.json"
-EXPORT_DIR = "/root/storage/downloads/graphs"
-TIMEFRAMES = {
-    "1D": "1d",
-    "5D": "5d",
-    "1M": "1mo",
-    "3M": "3mo",
-    "6M": "6mo",
-    "1Y": "1y"
-}
+import os
+import sys
 
-# -----------------------------------
-# Load tickers from im.py output
-# -----------------------------------
-def load_tickers():
-    if not os.path.exists(DATA_FILE):
-        print("watchlist.json missing")
-        return []
-    with open(DATA_FILE, "r") as f:
-        data = json.load(f)
-    return data.get("history", [])
+# Ensure Python can import im.py from this folder
+sys.path.append("/root/my--project")
 
-# -----------------------------------
-# Fetch historical data
-# -----------------------------------
-def fetch_history(symbol, period):
+from im import TICKERS, FAVORITES
+
+# === GRAPH OUTPUT DIRECTORY ===
+GRAPH_DIR = "/data/data/com.termux/files/home/stockdata/graphs"
+os.makedirs(GRAPH_DIR, exist_ok=True)
+
+# === PER-TICKER GRAPH ===
+def generate_graph(ticker):
     try:
-        return yf.Ticker(symbol).history(period=period)
-    except:
-        return None
+        df = yf.download(ticker, period="1mo", interval="1d", progress=False)
+        if df.empty:
+            return
 
-# -----------------------------------
-# Plot with labels
-# -----------------------------------
-def plot_timeframe(tickers, label, period):
-    if not os.path.exists(EXPORT_DIR):
-        os.makedirs(EXPORT_DIR)
+        plt.figure(figsize=(10, 6))
+        plt.plot(df.index, df["Close"], label=ticker)
+        plt.title(f"{ticker} — 1 Month")
+        plt.grid(True)
+        plt.tight_layout()
+        plt.savefig(f"{GRAPH_DIR}/{ticker}.png")
+        plt.close()
 
-    plt.figure(figsize=(14, 7))
+    except Exception as e:
+        print(f"[GRAPH ERROR] {ticker}: {e}")
 
-    for t in tickers[:20]:  # limit to 20 for readability
-        hist = fetch_history(t, period)
-        if hist is None or hist.empty:
+# === ALL TICKERS COMBINED GRAPH ===
+def graph_all_month():
+    plt.figure(figsize=(12, 8))
+
+    for t in TICKERS:
+        try:
+            df = yf.download(t, period="1mo", interval="1d", progress=False)
+            if df.empty:
+                continue
+            plt.plot(df.index, df["Close"], label=t)
+        except:
             continue
-        plt.plot(hist.index, hist["Close"], label=t)
 
-    plt.title(f"{label} Performance (Top 20)")
-    plt.xlabel("Date")
-    plt.ylabel("Price")
+    plt.title("All Tickers — 1 Month Combined")
     plt.legend(fontsize=8)
     plt.grid(True)
     plt.tight_layout()
-
-    out = os.path.join(EXPORT_DIR, f"{label}.png")
-    plt.savefig(out)
+    plt.savefig(f"{GRAPH_DIR}/all_month.png")
     plt.close()
 
-    print(f"Saved → {out}")
+# === FAVORITES COMBINED GRAPH ===
+def graph_favorites_month():
+    plt.figure(figsize=(12, 8))
 
-# -----------------------------------
-# Main
-# -----------------------------------
-def main():
-    tickers = load_tickers()
-    if not tickers:
-        print("No tickers found.")
-        return
+    for t in FAVORITES:
+        try:
+            df = yf.download(t, period="1mo", interval="1d", progress=False)
+            if df.empty:
+                continue
+            plt.plot(df.index, df["Close"], label=t)
+        except:
+            continue
 
-    print(f"Loaded {len(tickers)} tickers")
+    plt.title("Favorites — 1 Month Combined")
+    plt.legend(fontsize=8)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(f"{GRAPH_DIR}/favorites_month.png")
+    plt.close()
 
-    for label, period in TIMEFRAMES.items():
-        print(f"Generating {label} graph...")
-        plot_timeframe(tickers, label, period)
+# === RUN ALL GRAPH GENERATION ===
+print("Generating per‑ticker graphs...")
+for t in TICKERS:
+    generate_graph(t)
 
-if __name__ == "__main__":
-    main()
+print("Generating combined graphs...")
+graph_all_month()
+graph_favorites_month()
+
+print("=== graph.py complete ===")

@@ -1,166 +1,113 @@
 #!/usr/bin/env python3
-import requests
-import json
-import os
-import matplotlib.pyplot as plt
+import json, os, requests, time, tempfile, shutil
+WATCHLIST_PATH = "/root/my--project/watchlist.json"
+# === ATOMIC SAVE ===
+def atomic_save(path, data):
+    dirpath = os.path.dirname(path)
+    fd, tmp = tempfile.mkstemp(dir=dirpath)
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, indent=2)
+    shutil.move(tmp, path)
 
-DATA_FILE = "/root/my--project/watchlist.json"
-EXPORT_DIR = "/root/storage/downloads/graphs"
-# -----------------------------
-# Load / Save JSON
-# -----------------------------
-def load_data():
-    if not os.path.exists(DATA_FILE):
-        return {"history": [], "portfolio": {}}
-    with open(DATA_FILE, "r") as f:
-        return json.load(f)
+# === LOAD WATCHLIST ===
+if not os.path.exists(WATCHLIST_PATH):
+    raise FileNotFoundError(f"Missing watchlist.json at {WATCHLIST_PATH}")
 
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+with open(WATCHLIST_PATH, "r") as f:
+    data = json.load(f)
 
-# -----------------------------
-# Fetch Yahoo Finance Lists
-# -----------------------------
-def fetch_yahoo_list(scrId, pages=3):
-    tickers = []
-    for p in range(pages):
-        url = (
-            "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved"
-            f"?count=50&offset={p*50}&scrIds={scrId}"
-        )
-        try:
-            r = requests.get(url, timeout=5).json()
-            quotes = r["finance"]["result"][0]["quotes"]
-            for q in quotes:
-                tickers.append(q["symbol"])
-        except:
-            pass
-    return tickers
+TICKERS = data.get("tickers", [])
 
-# -----------------------------
-# Fetch Stocktwits Trending
-# -----------------------------
-def fetch_trending_stocktwits(limit=50):
-    url = "https://api.stocktwits.com/api/2/trending/symbols.json"
+# === LOAD FAVORITES ===
+def load_favorites():
+    if not os.path.exists(WATCHLIST_PATH):
+        return []
+    with open(WATCHLIST_PATH, "r") as f:
+        d = json.load(f)
+    return sorted(list(set(d.get("favorites", []))))
+
+FAVORITES = load_favorites()
+
+# Merge favorites into tickers
+for t in FAVORITES:
+    if t not in TICKERS:
+        TICKERS.append(t)
+
+# === MOVERS GLOBAL ===
+MOVERS = []
+
+# === FETCH LOOP ===
+YF_URL = "https://query1.finance.yahoo.com/v7/finance/quote?symbols="
+
+def fetch_quotes(tickers):
+    url = YF_URL + ",".join(tickers)
     try:
-        r = requests.get(url, timeout=5).json()
-        return [s["symbol"] for s in r["symbols"]][:limit]
-    except:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        return r.json().get("quoteResponse", {}).get("result", [])
+    except Exception as e:
+        print(f"[ERROR] Fetch failed: {e}")
         return []
 
-# -----------------------------
-# Fetch Quote Data
-# -----------------------------
-def fetch_quote(symbol):
-    url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
-    try:
-        r = requests.get(url, timeout=5).json()
-        q = r["quoteResponse"]["result"][0]
-        return {
-            "price": q.get("regularMarketPrice", 0),
-            "change": q.get("regularMarketChangePercent", 0)
-        }
-    except:
-        return {"price": 0, "change": 0}
+def process_quotes(quotes):
+    results = {}
 
-# -----------------------------
-# Merge Lists (priority)
-# -----------------------------
-def merge_lists(gainers, trending, active, history):
-    merged = []
+    for q in quotes:
+        try:
+            ticker = q.get("symbol")
+            price = q.get("regularMarketPrice", 0)
+            change = q.get("regularMarketChange", 0)
+            change_pct = q.get("regularMarketChangePercent", 0)
+            volume = q.get("regularMarketVolume", 0)
+            avg_volume = q.get("averageDailyVolume3Month", 0)
 
-    for t in gainers:
-        if t not in merged:
-            merged.append(t)
+            # Detect movers
+            if abs(change_pct) >= 5:
+                MOVERS.append(f"{ticker}: {change_pct:.2f}%")
 
-    for t in trending:
-        if t not in merged:
-            merged.append(t)
+            results[ticker] = {
+                "price": price,
+                "change": change,
+                "change_pct": change_pct,
+                "volume": volume,
+                "avg_volume": avg_volume
+            }
 
-    for t in active:
-        if t not in merged:
-            merged.append(t)
+        except Exception as e:
+            print(f"[PARSE ERROR] {e}")
+            continue
 
-    for t in history:
-        if t not in merged:
-            merged.append(t)
+    return results
 
-    return merged
+print("Fetching quotes...")
+quotes = fetch_quotes(TICKERS)
+time.sleep(0.3)
 
-# -----------------------------
-# Build Portfolio Table
-# -----------------------------
-def build_portfolio_table(tickers):
-    table = []
-    for t in tickers:
-        q = fetch_quote(t)
-        table.append({
-            "symbol": t,
-            "price": q["price"],
-            "change": q["change"]
-        })
-    table.sort(key=lambda x: x["change"], reverse=True)
-    return table
+DATA = process_quotes(quotes)
+print(f"Fetched {len(DATA)} tickers.")
 
-# -----------------------------
-# Print Clean Output
-# -----------------------------
-def print_table(table):
-    print("\n=== Portfolio View ===")
-    for row in table:
-        print(f"{row['symbol']:6} | ${row['price']:>8.2f} | {row['change']:>6.2f}%")
+# === PORTFOLIO MATH ===
+portfolio_value = 0
+daily_gain = 0
 
-# -----------------------------
-# Graph Export
-# -----------------------------
-def export_graph(table):
-    if not os.path.exists(EXPORT_DIR):
-        os.makedirs(EXPORT_DIR)
+for t, info in DATA.items():
+    price = info["price"]
+    change = info["change"]
 
-    symbols = [row["symbol"] for row in table[:20]]
-    changes = [row["change"] for row in table[:20]]
+    portfolio_value += price
+    daily_gain += change
 
-    plt.figure(figsize=(12, 6))
-    plt.bar(symbols, changes, color="cyan")
-    plt.xticks(rotation=75)
-    plt.title("Top 20 % Change")
-    plt.tight_layout()
+data["portfolio_value"] = round(portfolio_value, 2)
+data["daily_gain"] = round(daily_gain, 2)
 
-    out = os.path.join(EXPORT_DIR, "gainers_graph.png")
-    plt.savefig(out)
-    plt.close()
+if portfolio_value != 0:
+    data["daily_gain_pct"] = round((daily_gain / (portfolio_value - daily_gain)) * 100, 2)
+else:
+    data["daily_gain_pct"] = 0
 
-    print(f"\nGraph exported → {out}")
+# === SAVE RESULTS ===
+data["movers"] = MOVERS
+data["last_fetch"] = time.time()
 
-# -----------------------------
-# Main
-# -----------------------------
-def main():
-    print("Fetching lists...")
+atomic_save(WATCHLIST_PATH, data)
 
-    data = load_data()
-
-    # Safety repair
-    if "history" not in data:
-        data["history"] = []
-    if "portfolio" not in data:
-        data["portfolio"] = {}
-
-    gainers = fetch_yahoo_list("day_gainers", pages=3)
-    active = fetch_yahoo_list("most_actives", pages=3)
-    trending = fetch_trending_stocktwits(limit=50)
-
-    merged = merge_lists(gainers, trending, active, data["history"])
-    data["history"] = merged
-    save_data(data)
-
-    print(f"Total tickers merged: {len(merged)}")
-
-    table = build_portfolio_table(merged)
-    print_table(table)
-
-    export_graph(table)
-
-if __name__ == "__main__":
-    main()
+print("=== im.py complete ===")
