@@ -94,3 +94,4 @@ graph_all_month()
 graph_favorites_month()
 
 print("=== graph.py complete ===")
+

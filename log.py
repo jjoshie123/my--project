@@ -1,36 +1,70 @@
 #!/usr/bin/env python3
-import json, os, datetime
+import json
+import os
+import yfinance as yf
+from datetime import datetime
 
-WATCHLIST = "/data/data/com.termux/files/home/stockdata/watchlist.json"
-LOGDIR = "/data/data/com.termux/files/home/stockdata/logs"
+PROJECT_DIR = "/root/my--project"
+WATCHLIST_FILE = f"{PROJECT_DIR}/watchlist.json"
+LOG_DIR = f"{PROJECT_DIR}/logs"
+os.makedirs(LOG_DIR, exist_ok=True)
 
-def log(msg):
-    os.makedirs(LOGDIR, exist_ok=True)
-    today = datetime.date.today().isoformat()
-    path = f"{LOGDIR}/{today}.log"
-    with open(path, "a") as f:
-        f.write(msg + "\n")
+def load_watchlist():
+    with open(WATCHLIST_FILE, "r") as f:
+        data = json.load(f)
+        return data.get("tickers", []), data.get("favorites", [])
 
-def load():
-    with open(WATCHLIST, "r") as f:
-        return json.load(f)
+def fetch_info(ticker):
+    try:
+        t = yf.Ticker(ticker)
+        info = t.info
+        return {
+            "ticker": ticker,
+            "price": info.get("regularMarketPrice"),
+            "change": info.get("regularMarketChangePercent"),
+            "volume": info.get("regularMarketVolume"),
+            "market_cap": info.get("marketCap"),
+            "fifty_two_week_low": info.get("fiftyTwoWeekLow"),
+            "fifty_two_week_high": info.get("fiftyTwoWeekHigh"),
+            "day_low": info.get("dayLow"),
+            "day_high": info.get("dayHigh"),
+        }
+    except:
+        return None
+
+def write_log(favorites, tickers):
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    logfile = f"{LOG_DIR}/log_{timestamp}.txt"
+
+    with open(logfile, "w") as f:
+        f.write(f"=== DAILY LOG — {timestamp} ===\n\n")
+
+        f.write("=== FAVORITES ===\n")
+        for fav in favorites:
+            info = fetch_info(fav)
+            if info:
+                f.write(f"{info}\n")
+        f.write("\n")
+
+        f.write("=== ALL TICKERS ===\n")
+        for t in tickers:
+            info = fetch_info(t)
+            if info:
+                f.write(f"{info}\n")
+
+    print(f"[OK] Log saved: {logfile}")
+    return logfile
+
+def git_push(logfile):
+    os.system(f"cd {PROJECT_DIR} && git add {logfile}")
+    os.system(f"cd {PROJECT_DIR} && git commit -m 'Auto log update'")
+    os.system(f"cd {PROJECT_DIR} && git push")
+    print("[OK] Git push complete")
 
 def main():
-    data = load()
-    tickers = data.get("tickers", [])
-    favorites = data.get("favorites", [])
-    movers = data.get("movers", [])  # im.py will populate this
-
-    log(f"=== {datetime.datetime.now()} ===")
-    log(f"Tickers: {len(tickers)}")
-    log(f"Favorites: {len(favorites)}")
-
-    if movers:
-        log("Daily Movers:")
-        for m in movers:
-            log(f"  {m}")
-
-    log("")
+    tickers, favorites = load_watchlist()
+    logfile = write_log(favorites, tickers)
+    git_push(logfile)
 
 if __name__ == "__main__":
     main()
