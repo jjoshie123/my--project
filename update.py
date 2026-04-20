@@ -1,90 +1,88 @@
 #!/usr/bin/env python3
-import json, requests, os
+import json
+import os
+import yfinance as yf
+from datetime import datetime
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 13)",
-    "Accept": "application/json",
-}
-
-WATCHLIST_FILE = "watchlist.json"
-
-def log(msg):
-    print(msg)
+WATCHLIST_PATH = "watchlist.json"
+TMP_PATH = "watchlist_tmp.json"
 
 def load_watchlist():
-    if not os.path.exists(WATCHLIST_FILE):
-        return {"watchlist": []}
+    if not os.path.exists(WATCHLIST_PATH):
+        return {"tickers": [], "favorites": []}
 
+    with open(WATCHLIST_PATH, "r") as f:
+        try:
+            data = json.load(f)
+        except:
+            return {"tickers": [], "favorites": []}
+
+    if "tickers" not in data:
+        data["tickers"] = []
+    if "favorites" not in data:
+        data["favorites"] = []
+
+    return data
+
+
+def fetch_price(ticker):
     try:
-        with open(WATCHLIST_FILE) as f:
-            return json.load(f)
-    except Exception as e:
-        log(f"JSON load error: {e}")
-        return {"watchlist": []}
+        info = yf.Ticker(ticker).fast_info
+        return info.get("last_price", None)
+    except:
+        return None
 
-def save_watchlist(data):
-    with open(WATCHLIST_FILE, "w") as f:
-        json.dump(data, f, indent=2)
 
-def fetch_yahoo(url):
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return [x["symbol"] for x in data["finance"]["result"][0]["quotes"]]
-    except Exception as e:
-        log(f"Yahoo error: {e}")
-        return []
+def bucketize(price):
+    if price is None:
+        return None
+    if price < 50:
+        return "bucket_1_50"
+    elif price < 100:
+        return "bucket_50_100"
+    else:
+        return "bucket_100_plus"
 
-def fetch_stocktwits():
-    try:
-        r = requests.get(
-            "https://api.stocktwits.com/api/2/trending/symbols.json",
-            headers=HEADERS,
-            timeout=10
-        )
-        r.raise_for_status()
-        data = r.json()
-        return [x["symbol"] for x in data["symbols"]]
-    except Exception as e:
-        log(f"Stocktwits error: {e}")
-        return []
 
-# -------------------------
-# MAIN PIPELINE
-# -------------------------
+def update_watchlist():
+    wl = load_watchlist()
+    tickers = wl.get("tickers", [])
+    favorites = wl.get("favorites", [])
 
-data = load_watchlist()
-watchlist = set(data.get("watchlist", []))
+    # Ensure no duplicates
+    tickers = sorted(list(set(tickers)))
+    favorites = sorted(list(set(favorites)))
 
-# Fetch from Yahoo
-yahoo_url = "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?formatted=false&scrIds=day_gainers"
-yahoo_tickers = fetch_yahoo(yahoo_url)
-log(f"Yahoo returned {len(yahoo_tickers)} tickers")
+    # Prepare bucket structure
+    buckets = {
+        "bucket_1_50": [],
+        "bucket_50_100": [],
+        "bucket_100_plus": []
+    }
 
-# Fetch from Stocktwits
-stocktwits_tickers = fetch_stocktwits()
-log(f"Stocktwits returned {len(stocktwits_tickers)} tickers")
+    # Fetch prices + assign buckets
+    for t in tickers:
+        price = fetch_price(t)
+        b = bucketize(price)
+        if b:
+            buckets[b].append(t)
 
-# Combine
-before_count = len(watchlist)
-combined = yahoo_tickers + stocktwits_tickers
+    # Build final JSON
+    updated = {
+        "tickers": tickers,
+        "favorites": favorites,
+        "buckets": buckets,
+        "last_update": datetime.now().isoformat()
+    }
 
-added = []
-for t in combined:
-    if t not in watchlist:
-        watchlist.add(t)
-        added.append(t)
+    # Atomic write
+    with open(TMP_PATH, "w") as f:
+        json.dump(updated, f, indent=4)
 
-# Save
-data["watchlist"] = sorted(list(watchlist))
-save_watchlist(data)
+    os.replace(TMP_PATH, WATCHLIST_PATH)
 
-# Final logs
-log(f"Added {len(added)} new tickers")
-if added:
-    log("New tickers:")
-    for t in added:
-        log(f"  - {t}")
+    print("Watchlist updated with buckets + favorites.")
 
-log(f"Final watchlist size: {len(watchlist)}")
+
+if __name__ == "__main__":
+    update_watchlist()

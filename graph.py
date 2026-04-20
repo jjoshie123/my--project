@@ -1,109 +1,77 @@
 #!/usr/bin/env python3
-import json
+import os, json, glob, datetime
 import yfinance as yf
 import matplotlib.pyplot as plt
-import os
-from datetime import datetime
 
-WATCHLIST_PATH = "watchlist.json"
-EXPORT_DIR = "/root/my--project/graphs"
-LOG_PATH = "/root/storage/downloads/pv-log.txt"
+# --- PATHS (Termux + Arch PRoot safe) ---
+WATCHLIST = "/data/data/com.termux/files/home/stockdata/watchlist.json"
+GRAPH_DIR = "/root/storage/downloads/graphs"
+LOG_FILE = "/root/storage/downloads/graph_log.txt"
 
-def log(msg):
-    with open(LOG_PATH, "a") as f:
-        f.write(f"[GRAPH] {datetime.now()} - {msg}\n")
+os.makedirs(GRAPH_DIR, exist_ok=True)
 
-def load_watchlist():
-    with open(WATCHLIST_PATH, "r") as f:
-        return json.load(f)
-
-def fetch_history(ticker, period="1mo"):
+# --- DELETE OLD GRAPHS ---
+for f in glob.glob(os.path.join(GRAPH_DIR, "*.png")):
     try:
-        df = yf.Ticker(ticker).history(period=period)
-        if df.empty:
-            log(f"{ticker}: empty history")
-            return None
-        return df["Close"]
+        os.remove(f)
+    except:
+        pass
+
+# --- LOAD WATCHLIST + AUTO-REPAIR ---
+def load_watchlist():
+    if not os.path.exists(WATCHLIST):
+        return {"tickers": [], "favorites": []}
+
+    try:
+        with open(WATCHLIST, "r") as f:
+            data = json.load(f)
+    except:
+        data = {}
+
+    # Auto-repair missing keys
+    if "tickers" not in data or not isinstance(data["tickers"], list):
+        data["tickers"] = []
+    if "favorites" not in data or not isinstance(data["favorites"], list):
+        data["favorites"] = []
+
+    return data
+
+wl = load_watchlist()
+tickers = wl["tickers"]
+favorites = wl["favorites"]
+
+# --- LOG TICKERS USED ---
+with open(LOG_FILE, "a") as log:
+    log.write("\n--- Graph Run: {} ---\n".format(datetime.datetime.utcnow()))
+    log.write("Tickers: {}\n".format(tickers))
+    log.write("Favorites: {}\n".format(favorites))
+
+# --- FETCH + PLOT ---
+def plot_ticker(ticker):
+    try:
+        data = yf.download(ticker, period="1mo", interval="1d")
+        if data.empty:
+            return
+
+        plt.figure(figsize=(10, 5))
+        plt.plot(data.index, data["Close"], label=ticker, linewidth=2)
+        plt.title(f"{ticker} - 1 Month Close Price")
+        plt.xlabel("Date")
+        plt.ylabel("Price")
+        plt.grid(True)
+        plt.legend()
+
+        out = os.path.join(GRAPH_DIR, f"{ticker}.png")
+        plt.savefig(out)
+        plt.close()
+
     except Exception as e:
-        log(f"{ticker}: history error {e}")
-        return None
+        with open(LOG_FILE, "a") as log:
+            log.write(f"Error plotting {ticker}: {e}\n")
 
-def plot_bucket(name, tickers):
-    if not tickers:
-        log(f"Bucket {name} empty — skipping")
-        return
+# --- GENERATE GRAPHS ---
+for t in tickers:
+    plot_ticker(t)
 
-    plt.figure(figsize=(12, 6))
-    for t in tickers:
-        hist = fetch_history(t, "1mo")
-        if hist is not None:
-            plt.plot(hist, label=t)
-
-    plt.title(f"Bucket: {name}")
-    plt.legend()
-    plt.grid(True)
-
-    out = f"{EXPORT_DIR}/bucket_{name}.png"
-    plt.savefig(out)
-    plt.close()
-    log(f"Saved {out}")
-
-def plot_all(tickers):
-    plt.figure(figsize=(12, 6))
-    for t in tickers:
-        hist = fetch_history(t, "1mo")
-        if hist is not None:
-            plt.plot(hist, label=t)
-
-    plt.title("All Tickers Combined")
-    plt.legend()
-    plt.grid(True)
-
-    out = f"{EXPORT_DIR}/all_tickers.png"
-    plt.savefig(out)
-    plt.close()
-    log(f"Saved {out}")
-
-def plot_favorites(favorites):
-    if not favorites:
-        log("Favorites list empty — skipping favorites graph")
-        return
-
-    plt.figure(figsize=(12, 6))
-    for t in favorites:
-        hist = fetch_history(t, "1mo")
-        if hist is not None:
-            plt.plot(hist, label=t)
-
-    plt.title("Favorites — 1 Month Performance")
-    plt.legend()
-    plt.grid(True)
-
-    out = f"{EXPORT_DIR}/favorites.png"
-    plt.savefig(out)
-    plt.close()
-    log(f"Saved {out}")
-
-def main():
-    os.makedirs(EXPORT_DIR, exist_ok=True)
-
-    data = load_watchlist()
-    buckets = data.get("price_buckets", {})
-    tickers = data.get("tickers", [])
-    favorites = data.get("favorites", [])
-
-    # Bucket graphs
-    plot_bucket("1_to_50", buckets.get("1_to_50", []))
-    plot_bucket("50_to_100", buckets.get("50_to_100", []))
-    plot_bucket("100_plus", buckets.get("100_plus", []))
-
-    # Combined graph
-    plot_all(tickers)
-
-    # Favorites graph
-    plot_favorites(favorites)
-
-    log("Graph generation complete")
-
-if __name__ == "__main__":
-    main()
+for f in favorites:
+    plot_ticker(f)
