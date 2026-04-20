@@ -1,118 +1,122 @@
 #!/usr/bin/env python3
-import json, os, requests, time, tempfile, shutil
+import json, os, time, requests
+from datetime import datetime
 
-# Correct Arch path
 WATCHLIST_PATH = "/root/my--project/watchlist.json"
+LOG_PATH = "/root/storage/downloads/pv-log.txt"
 
-# Android-visible graph directory
-GRAPH_DIR = "/root/storage/downloads/graphs"
-# === ATOMIC SAVE ===
-def atomic_save(path, data):
-    dirpath = os.path.dirname(path)
-    fd, tmp = tempfile.mkstemp(dir=dirpath)
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2)
-    shutil.move(tmp, path)
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+}
 
-# === LOAD WATCHLIST ===
-if not os.path.exists(WATCHLIST_PATH):
-    raise FileNotFoundError(f"Missing watchlist.json at {WATCHLIST_PATH}")
+YF_SOURCES = {
+    "gainers": "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=25&scrIds=day_gainers",
+    "trending": "https://query1.finance.yahoo.com/v1/finance/trending/US",
+    "active": "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=25&scrIds=most_actives"
+}
 
-with open(WATCHLIST_PATH, "r") as f:
-    data = json.load(f)
+def log(msg):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(LOG_PATH, "a") as f:
+        f.write(f"[{ts}] {msg}\n")
 
-TICKERS = data.get("tickers", [])
-
-# === LOAD FAVORITES ===
-def load_favorites():
-    if not os.path.exists(WATCHLIST_PATH):
-        return []
-    with open(WATCHLIST_PATH, "r") as f:
-        d = json.load(f)
-    return sorted(list(set(d.get("favorites", []))))
-
-FAVORITES = load_favorites()
-
-# Merge favorites into tickers
-for t in FAVORITES:
-    if t not in TICKERS:
-        TICKERS.append(t)
-
-# === MOVERS GLOBAL ===
-MOVERS = []
-
-# === FETCH LOOP ===
-YF_URL = "https://query1.finance.yahoo.com/v7/finance/quote?symbols="
-
-def fetch_quotes(tickers):
-    url = YF_URL + ",".join(tickers)
-    try:
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        return r.json().get("quoteResponse", {}).get("result", [])
-    except Exception as e:
-        print(f"[ERROR] Fetch failed: {e}")
-        return []
-
-def process_quotes(quotes):
-    results = {}
-
-    for q in quotes:
+def fetch_json(url):
+    for attempt in range(3):
         try:
-            ticker = q.get("symbol")
-            price = q.get("regularMarketPrice", 0)
-            change = q.get("regularMarketChange", 0)
-            change_pct = q.get("regularMarketChangePercent", 0)
-            volume = q.get("regularMarketVolume", 0)
-            avg_volume = q.get("averageDailyVolume3Month", 0)
-
-            # Detect movers
-            if abs(change_pct) >= 5:
-                MOVERS.append(f"{ticker}: {change_pct:.2f}%")
-
-            results[ticker] = {
-                "price": price,
-                "change": change,
-                "change_pct": change_pct,
-                "volume": volume,
-                "avg_volume": avg_volume
-            }
-
+            r = requests.get(url, headers=HEADERS, timeout=10)
+            if r.status_code == 200:
+                return r.json()
         except Exception as e:
-            print(f"[PARSE ERROR] {e}")
-            continue
+            log(f"Fetch error {url}: {e}")
+        time.sleep(1)
+    return None
 
-    return results
+def load_auto_tickers():
+    tickers = set()
 
-print("Fetching quotes...")
-quotes = fetch_quotes(TICKERS)
-time.sleep(0.3)
+    # GAINERS
+    data = fetch_json(YF_SOURCES["gainers"])
+    if data:
+        for item in data.get("finance", {}).get("result", [{}])[0].get("quotes", []):
+            if "symbol" in item:
+                tickers.add(item["symbol"])
 
-DATA = process_quotes(quotes)
-print(f"Fetched {len(DATA)} tickers.")
+    # TRENDING
+    data = fetch_json(YF_SOURCES["trending"])
+    if data:
+        for item in data.get("finance", {}).get("result", [{}])[0].get("quotes", []):
+            if "symbol" in item:
+                tickers.add(item["symbol"])
 
-# === PORTFOLIO MATH ===
-portfolio_value = 0
-daily_gain = 0
+    # MOST ACTIVE
+    data = fetch_json(YF_SOURCES["active"])
+    if data:
+        for item in data.get("finance", {}).get("result", [{}])[0].get("quotes", []):
+            if "symbol" in item:
+                tickers.add(item["symbol"])
 
-for t, info in DATA.items():
-    price = info["price"]
-    change = info["change"]
+    tickers = sorted(list(tickers))
+    log(f"Auto-loaded {len(tickers)} tickers")
+    return tickers
 
-    portfolio_value += price
-    daily_gain += change
+def fetch_price(symbol):
+    url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbol}"
+    data = fetch_json(url)
+    if not data:
+        return None
 
-data["portfolio_value"] = round(portfolio_value, 2)
-data["daily_gain"] = round(daily_gain, 2)
+    try:
+        q = data["quoteResponse"]["result"][0]
+        return {
+            "price": q.get("regularMarketPrice", 0),
+            "change": q.get("regularMarketChangePercent", 0),
+            "volume": q.get("regularMarketVolume", 0)
+        }
+    except:
+        return None
 
-if portfolio_value != 0:
-    data["daily_gain_pct"] = round((daily_gain / (portfolio_value - daily_gain)) * 100, 2)
-else:
-    data["daily_gain_pct"] = 0
+def build_watchlist(tickers):
+    wl = {"tickers": tickers, "favorites": []}
+    with open(WATCHLIST_PATH, "w") as f:
+        json.dump(wl, f, indent=4)
+    log("Wrote new full-auto watchlist.json")
 
-# === SAVE RESULTS ===
-data["movers"] = MOVERS
-data["last_fetch"] = time.time()
+def main():
+    log("=== RUN START ===")
 
-atomic_save(WATCHLIST_PATH, data)
+    tickers = load_auto_tickers()
 
-print("=== im.py complete ===")
+    if not tickers:
+        log("ERROR: No tickers loaded — inserting fallback AAPL")
+        tickers = ["AAPL"]
+
+    build_watchlist(tickers)
+
+    # Fetch loop
+    results = []
+    for t in tickers:
+        info = fetch_price(t)
+        if info:
+            results.append({
+                "symbol": t,
+                "price": info["price"],
+                "change": info["change"],
+                "volume": info["volume"]
+            })
+            log(f"Fetched {t}: {info}")
+        else:
+            log(f"FAILED fetch: {t}")
+
+    # Sort by biggest movers
+    results.sort(key=lambda x: abs(x["change"]), reverse=True)
+
+    # Print clean PV output
+    print("\n=== Portfolio View ===")
+    for r in results:
+        print(f"{r['symbol']:6}  ${r['price']:>8}  {r['change']:>6}%  Vol {r['volume']}")
+
+    log("=== RUN END ===\n")
+
+if __name__ == "__main__":
+    main()
