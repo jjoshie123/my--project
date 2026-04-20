@@ -1,1 +1,14 @@
-{"tickers": [], "favorites": [], "last_updated": ""}
+{
+  "tickers": [
+    "AAPL"
+  ],
+  "favorites": [],
+  "last_updated": "",
+  "history": [],
+  "portfolio": {},
+  "portfolio_value": 0,
+  "daily_gain": 0,
+  "daily_gain_pct": 0,
+  "last_fetch": 1776711347.1620197,
+  "movers": []
+}
