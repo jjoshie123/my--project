@@ -1,12 +1,11 @@
 {
-  "tickers": [
-    "AAPL"
-  ],
-  "favorites": [],
-  "history": [],
-  "portfolio": {},
-  "portfolio_value": 0,
-  "daily_gain": 0,
-  "daily_gain_pct": 0,
-  "last_fetch": 0
+    "tickers": [],
+    "favorites": [],
+    "history": [],
+    "portfolio": {},
+    "portfolio_value": 0,
+    "daily_gain": 0,
+    "daily_gain_pct": 0,
+    "last_fetch": 0,
+    "last_updated": "2026-04-20T12:36:55.664565"
 }

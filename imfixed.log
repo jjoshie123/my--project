@@ -1,0 +1,9 @@
+=== Running imfixed.py ===
+Yahoo error: 429 Client Error: Too Many Requests for url: https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=50&scrIds=day_gainers
+Yahoo error: 429 Client Error: Too Many Requests for url: https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=50&scrIds=most_actives
+Stocktwits error: 403 Client Error: Forbidden for url: https://api.stocktwits.com/api/2/trending/symbols.json
+Gainers: 0
+Active: 0
+Trending: 0
+Combined tickers: 0
+Watchlist updated successfully.
