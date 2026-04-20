@@ -1,4 +1,4 @@
-HEADERS = {	
+HEADERS = {}	
     "User-Agent": "Mozilla/5.0 (Linux; Android 13)",
     "Accept": "application/json",
 }
