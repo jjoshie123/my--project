@@ -81,6 +81,7 @@ def main():
         plot_window(tickers, name, start)
 
     print("Graph generation complete.")
-
+cp /data/data/com.termux/files/usr/var/lib/proot-distro/installed-rootfs/archlinux/root/my--project/graphs/*.png \
+   $HOME/storage/downloads/graphs/
 if __name__ == "__main__":
     main()
