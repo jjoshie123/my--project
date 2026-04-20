@@ -1,88 +1,77 @@
 #!/usr/bin/env python3
-import json
-import os
+import os, json, glob, datetime
 import yfinance as yf
-from datetime import datetime
+import matplotlib.pyplot as plt
 
-WATCHLIST_PATH = "watchlist.json"
-TMP_PATH = "watchlist_tmp.json"
+# --- PATHS (Termux + Arch PRoot safe) ---
+WATCHLIST = "/data/data/com.termux/files/home/stockdata/watchlist.json"
+GRAPH_DIR = "/root/storage/downloads/graphs"
+LOG_FILE = "/root/storage/downloads/graph_log.txt"
 
+os.makedirs(GRAPH_DIR, exist_ok=True)
+
+# --- DELETE OLD GRAPHS ---
+for f in glob.glob(os.path.join(GRAPH_DIR, "*.png")):
+    try:
+        os.remove(f)
+    except:
+        pass
+
+# --- LOAD WATCHLIST + AUTO-REPAIR ---
 def load_watchlist():
-    if not os.path.exists(WATCHLIST_PATH):
+    if not os.path.exists(WATCHLIST):
         return {"tickers": [], "favorites": []}
 
-    with open(WATCHLIST_PATH, "r") as f:
-        try:
+    try:
+        with open(WATCHLIST, "r") as f:
             data = json.load(f)
-        except:
-            return {"tickers": [], "favorites": []}
+    except:
+        data = {}
 
-    if "tickers" not in data:
+    # Auto-repair missing keys
+    if "tickers" not in data or not isinstance(data["tickers"], list):
         data["tickers"] = []
-    if "favorites" not in data:
+    if "favorites" not in data or not isinstance(data["favorites"], list):
         data["favorites"] = []
 
     return data
 
+wl = load_watchlist()
+tickers = wl["tickers"]
+favorites = wl["favorites"]
 
-def fetch_price(ticker):
+# --- LOG TICKERS USED ---
+with open(LOG_FILE, "a") as log:
+    log.write("\n--- Graph Run: {} ---\n".format(datetime.datetime.utcnow()))
+    log.write("Tickers: {}\n".format(tickers))
+    log.write("Favorites: {}\n".format(favorites))
+
+# --- FETCH + PLOT ---
+def plot_ticker(ticker):
     try:
-        info = yf.Ticker(ticker).fast_info
-        return info.get("last_price", None)
-    except:
-        return None
+        data = yf.download(ticker, period="1mo", interval="1d")
+        if data.empty:
+            return
 
+        plt.figure(figsize=(10, 5))
+        plt.plot(data.index, data["Close"], label=ticker, linewidth=2)
+        plt.title(f"{ticker} - 1 Month Close Price")
+        plt.xlabel("Date")
+        plt.ylabel("Price")
+        plt.grid(True)
+        plt.legend()
 
-def bucketize(price):
-    if price is None:
-        return None
-    if price < 50:
-        return "bucket_1_50"
-    elif price < 100:
-        return "bucket_50_100"
-    else:
-        return "bucket_100_plus"
+        out = os.path.join(GRAPH_DIR, f"{ticker}.png")
+        plt.savefig(out)
+        plt.close()
 
+    except Exception as e:
+        with open(LOG_FILE, "a") as log:
+            log.write(f"Error plotting {ticker}: {e}\n")
 
-def update_watchlist():
-    wl = load_watchlist()
-    tickers = wl.get("tickers", [])
-    favorites = wl.get("favorites", [])
+# --- GENERATE GRAPHS ---
+for t in tickers:
+    plot_ticker(t)
 
-    # Ensure no duplicates
-    tickers = sorted(list(set(tickers)))
-    favorites = sorted(list(set(favorites)))
-
-    # Prepare bucket structure
-    buckets = {
-        "bucket_1_50": [],
-        "bucket_50_100": [],
-        "bucket_100_plus": []
-    }
-
-    # Fetch prices + assign buckets
-    for t in tickers:
-        price = fetch_price(t)
-        b = bucketize(price)
-        if b:
-            buckets[b].append(t)
-
-    # Build final JSON
-    updated = {
-        "tickers": tickers,
-        "favorites": favorites,
-        "buckets": buckets,
-        "last_update": datetime.now().isoformat()
-    }
-
-    # Atomic write
-    with open(TMP_PATH, "w") as f:
-        json.dump(updated, f, indent=4)
-
-    os.replace(TMP_PATH, WATCHLIST_PATH)
-
-    print("Watchlist updated with buckets + favorites.")
-
-
-if __name__ == "__main__":
-    update_watchlist()
+for f in favorites:
+    plot_ticker(f)
