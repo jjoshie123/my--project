@@ -1,25 +1,6 @@
 {
   "tickers": [
-    "ASTS",
-    "ATAI",
-    "AVEX",
-    "BTC-USD",
-    "CL=F",
-    "CMND",
-    "CMPS",
-    "CRML",
-    "DFTX",
-    "ES=F",
-    "ETH-USD",
-    "FTSEMIB.MI",
-    "MRVL",
-    "NQ=F",
-    "TOVX",
-    "YM=F",
-    "^FCHI",
-    "^FTSE",
-    "^GDAXI",
-    "^VIX"
+    "AAPL"
   ],
   "favorites": [],
   "history": [],
