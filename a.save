@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+import os
+import json
+import time
+import math
+import requests
+import yfinance as yf
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# -------- CONFIG --------
+WATCHLIST_PATH = "watchlist.json"
+BASE_DIR = "/root/storage/downloads/watchlist_graphs"
+LOG_PATH = "/root/storage/downloads/watchlist_graphs_log.json"
+
+BATCH_SIZE = 25
+HISTORY_PERIOD = "1mo"
+SLEEP_BETWEEN_BATCHES = 1
+
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Linux; Android 13)",
+    "Accept": "application/json",
+}
+# ------------------------
+
+
+def ensure_dirs():
+    for d in ["1_10", "10_100", "100_plus"]:
+        path = os.path.join(BASE_DIR, d)
+        os.makedirs(path, exist_ok=True)
+
+
+def load_watchlist():
+    if not os.path.exists(WATCHLIST_PATH):
+        return []
+
+    with open(WATCHLIST_PATH, "r") as f:
+        data = json.load(f)
+
+    tickers = data.get("tickers", [])
+    favorites = data.get("favorites", [])
+
+    merged = []
+    seen = set()
+
+    for t in tickers + favorites:
+        t = t.upper().strip()
+        if t and t not in seen:
+            seen.add(t)
+            merged.append(t)
+
+    return merged
+
+
+def fetch_yahoo_list(url):
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        return [x["symbol"] for x in data["finance"]["result"][0]["quotes"]]
+    except Exception:
+        return []
+
+
+def fetch_yahoo_gainers():
+    return fetch_yahoo_list(
+        "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=100&scrIds=day_gainers"
+    )
+
+
+def fetch_yahoo_most_active():
+    return fetch_yahoo_list(
+        "https://query1.finance.yahoo.com/v1/finance/screener/predefined/saved?count=100&scrIds=most_actives"
+    )
+
+
+def fetch_stocktwits_trending():
+    try:
+        r = requests.get(
+            "https://api.stocktwits.com/api/2/trending/symbols.json",
+            headers=HEADERS,
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return [x["symbol"] for x in data["symbols"]]
+    except Exception:
+        return []
+
+
+def save_log(entry):
+    log = []
+    if os.path.exists(LOG_PATH):
+        try:
+            with open(LOG_PATH, "r") as f:
+                log = json.load(f)
+        except:
+            log = []
+
+    log.append(entry)
+
+    with open(LOG_PATH, "w") as f:
+        json.dump(log, f, indent=4)
+
+
+def get_price(ticker):
+    try:

@@ -1,77 +1,59 @@
 #!/usr/bin/env python3
-import os, json, glob, datetime
+import json
 import yfinance as yf
 import matplotlib.pyplot as plt
+import os
 
-# --- PATHS (Termux + Arch PRoot safe) ---
-WATCHLIST = "/data/data/com.termux/files/home/stockdata/watchlist.json"
-GRAPH_DIR = "/root/storage/downloads/graphs"
-LOG_FILE = "/root/storage/downloads/graph_log.txt"
+WATCHLIST_PATH = "watchlist.json"
+GRAPH_DIR = "/root/my--project/graphs"
 
-os.makedirs(GRAPH_DIR, exist_ok=True)
-
-# --- DELETE OLD GRAPHS ---
-for f in glob.glob(os.path.join(GRAPH_DIR, "*.png")):
-    try:
-        os.remove(f)
-    except:
-        pass
-
-# --- LOAD WATCHLIST + AUTO-REPAIR ---
 def load_watchlist():
-    if not os.path.exists(WATCHLIST):
-        return {"tickers": [], "favorites": []}
+    with open(WATCHLIST_PATH, "r") as f:
+        data = json.load(f)
+    return data.get("tickers", [])
 
+def ensure_graph_dir():
+    if not os.path.exists(GRAPH_DIR):
+        os.makedirs(GRAPH_DIR)
+
+def fetch_history(ticker, period):
     try:
-        with open(WATCHLIST, "r") as f:
-            data = json.load(f)
+        return yf.Ticker(ticker).history(period=period)
     except:
-        data = {}
+        return None
 
-    # Auto-repair missing keys
-    if "tickers" not in data or not isinstance(data["tickers"], list):
-        data["tickers"] = []
-    if "favorites" not in data or not isinstance(data["favorites"], list):
-        data["favorites"] = []
+def plot_history(ticker, df, label):
+    plt.figure(figsize=(10, 5))
+    plt.plot(df.index, df["Close"], label=ticker)
+    plt.title(f"{ticker} — {label}")
+    plt.xlabel("Date")
+    plt.ylabel("Price")
+    plt.grid(True)
+    plt.legend()
 
-    return data
+    filename = f"{GRAPH_DIR}/{ticker}_{label}.png"
+    plt.savefig(filename)
+    plt.close()
 
-wl = load_watchlist()
-tickers = wl["tickers"]
-favorites = wl["favorites"]
+def main():
+    ensure_graph_dir()
+    tickers = load_watchlist()
 
-# --- LOG TICKERS USED ---
-with open(LOG_FILE, "a") as log:
-    log.write("\n--- Graph Run: {} ---\n".format(datetime.datetime.utcnow()))
-    log.write("Tickers: {}\n".format(tickers))
-    log.write("Favorites: {}\n".format(favorites))
+    for t in tickers:
+        week = fetch_history(t, "1wk")
+        month = fetch_history(t, "1mo")
+        alltime = fetch_history(t, "max")
 
-# --- FETCH + PLOT ---
-def plot_ticker(ticker):
-    try:
-        data = yf.download(ticker, period="1mo", interval="1d")
-        if data.empty:
-            return
+        if week is not None and not week.empty:
+            plot_history(t, week, "1_week")
 
-        plt.figure(figsize=(10, 5))
-        plt.plot(data.index, data["Close"], label=ticker, linewidth=2)
-        plt.title(f"{ticker} - 1 Month Close Price")
-        plt.xlabel("Date")
-        plt.ylabel("Price")
-        plt.grid(True)
-        plt.legend()
+        if month is not None and not month.empty:
+            plot_history(t, month, "1_month")
 
-        out = os.path.join(GRAPH_DIR, f"{ticker}.png")
-        plt.savefig(out)
-        plt.close()
+        if alltime is not None and not alltime.empty:
+            plot_history(t, alltime, "all_time")
 
-    except Exception as e:
-        with open(LOG_FILE, "a") as log:
-            log.write(f"Error plotting {ticker}: {e}\n")
+    print("Graphs generated.")
 
-# --- GENERATE GRAPHS ---
-for t in tickers:
-    plot_ticker(t)
-
-for f in favorites:
-    plot_ticker(f)
+if __name__ == "__main__":
+    main()

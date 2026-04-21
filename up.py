@@ -33,24 +33,45 @@ def fetch_price(ticker):
         return None
 
 
+def bucketize(price):
+    if price is None:
+        return None
+    if price < 50:
+        return "bucket_1_50"
+    elif price < 100:
+        return "bucket_50_100"
+    else:
+        return "bucket_100_plus"
+
+
 def update_watchlist():
     wl = load_watchlist()
     tickers = wl.get("tickers", [])
     favorites = wl.get("favorites", [])
 
-    # Deduplicate
+    # Ensure no duplicates
     tickers = sorted(list(set(tickers)))
     favorites = sorted(list(set(favorites)))
 
-    # Fetch prices
-    prices = {}
-    for t in tickers:
-        prices[t] = fetch_price(t)
+    # Prepare bucket structure
+    buckets = {
+        "bucket_1_50": [],
+        "bucket_50_100": [],
+        "bucket_100_plus": []
+    }
 
+    # Fetch prices + assign buckets
+    for t in tickers:
+        price = fetch_price(t)
+        b = bucketize(price)
+        if b:
+            buckets[b].append(t)
+
+    # Build final JSON
     updated = {
         "tickers": tickers,
         "favorites": favorites,
-        "prices": prices,
+        "buckets": buckets,
         "last_update": datetime.now().isoformat()
     }
 
@@ -60,7 +81,7 @@ def update_watchlist():
 
     os.replace(TMP_PATH, WATCHLIST_PATH)
 
-    print("Watchlist updated.")
+    print("Watchlist updated with buckets + favorites.")
 
 
 if __name__ == "__main__":
