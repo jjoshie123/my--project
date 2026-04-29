@@ -1,0 +1,12 @@
+{
+    "tickers": [
+        "AAPL"
+    ],
+    "favorites": [],
+    "buckets": {
+        "bucket_1_50": [],
+        "bucket_50_100": [],
+        "bucket_100_plus": []
+    },
+    "last_update": "2026-04-21T12:49:23.129201"
+}
